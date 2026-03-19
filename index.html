@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PixelSqueeze — Bulk Image Optimizer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242836;
+      --border: #2e3344;
+      --text: #e4e6ef;
+      --text-muted: #8b8fa3;
+      --accent: #6c5ce7;
+      --accent-hover: #7f71ef;
+      --green: #00b894;
+      --green-bg: rgba(0, 184, 148, 0.12);
+      --red: #e74c3c;
+      --blue: #0984e3;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+      font-size: 1.05rem;
+    }
+
+    .privacy-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--green-bg);
+      color: var(--green);
+      border: 1px solid rgba(0, 184, 148, 0.25);
+      border-radius: 999px;
+      padding: 0.4rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-top: 1rem;
+    }
+
+    /* Drop zone */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--surface);
+      margin-bottom: 1.5rem;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(108, 92, 231, 0.06);
+    }
+
+    .dropzone-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .dropzone h3 { font-size: 1.1rem; margin-bottom: 0.3rem; }
+    .dropzone p { color: var(--text-muted); font-size: 0.9rem; }
+
+    #fileInput { display: none; }
+
+    /* Controls */
+    .controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+
+    .controls.visible { display: block; }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.2rem;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .control-group select, .control-group input[type="number"] {
+      width: 100%;
+      padding: 0.55rem 0.75rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    .control-group select:focus, .control-group input:focus {
+      border-color: var(--accent);
+    }
+
+    .quality-display {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .quality-display input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .quality-display span {
+      min-width: 3ch;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 1.2rem;
+    }
+
+    .checkbox-group input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .checkbox-group label { text-transform: none; color: var(--text); font-size: 0.9rem; margin-bottom: 0; }
+
+    /* Buttons */
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+
+    .actions.visible { display: flex; }
+
+    .btn {
+      padding: 0.65rem 1.5rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+
+    .btn-green {
+      background: var(--green);
+      color: white;
+    }
+
+    .btn-green:hover:not(:disabled) { background: #00a381; }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid rgba(231, 76, 60, 0.3);
+    }
+
+    .btn-danger:hover:not(:disabled) { background: rgba(231, 76, 60, 0.08); }
+
+    /* Progress */
+    .progress-container {
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+
+    .progress-container.visible { display: block; }
+
+    .progress-bar-wrapper {
+      background: var(--surface2);
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 0.4rem;
+    }
+
+    /* Summary */
+    .summary {
+      background: var(--green-bg);
+      border: 1px solid rgba(0, 184, 148, 0.25);
+      border-radius: 12px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 1.5rem;
+      display: none;
+      text-align: center;
+    }
+
+    .summary.visible { display: block; }
+
+    .summary-number {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--green);
+    }
+
+    .summary-label {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    /* Image grid */
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .image-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .image-card:hover { border-color: var(--accent); }
+
+    .image-preview {
+      position: relative;
+      width: 100%;
+      height: 180px;
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .image-preview img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .image-preview .toggle-label {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .image-info {
+      padding: 1rem;
+    }
+
+    .image-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 0.5rem;
+    }
+
+    .size-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .size-original { color: var(--text-muted); }
+    .size-arrow { color: var(--text-muted); }
+    .size-optimized { font-weight: 700; }
+
+    .savings-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .savings-badge.good {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .savings-badge.low {
+      background: rgba(139, 143, 163, 0.1);
+      color: var(--text-muted);
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .card-actions .btn {
+      flex: 1;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.82rem;
+      justify-content: center;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding: 1.5rem 0;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 600px) {
+      .container { padding: 1rem; }
+      header h1 { font-size: 1.6rem; }
+      .image-grid { grid-template-columns: 1fr; }
+      .controls-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PixelSqueeze</h1>
+      <p>Bulk image optimizer — fast, free, private</p>
+      <div class="privacy-badge">&#x1F512; Images never leave your browser</div>
+    </header>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-icon">&#x1F4F7;</div>
+      <h3>Drop images here</h3>
+      <p>or click to select &middot; JPEG, PNG, WebP, GIF</p>
+    </div>
+    <input type="file" id="fileInput" multiple accept="image/*" />
+
+    <div class="controls" id="controls">
+      <div class="controls-grid">
+        <div class="control-group">
+          <label>Max dimension (px)</label>
+          <select id="maxDim">
+            <option value="0">No resize</option>
+            <option value="640">640</option>
+            <option value="800">800</option>
+            <option value="1024">1024</option>
+            <option value="1280">1280</option>
+            <option value="1920" selected>1920</option>
+            <option value="2560">2560</option>
+            <option value="custom">Custom...</option>
+          </select>
+          <input type="number" id="customDim" placeholder="e.g. 1200" style="display:none; margin-top:0.5rem;" min="1" max="10000" />
+        </div>
+        <div class="control-group">
+          <label>Quality</label>
+          <div class="quality-display">
+            <input type="range" id="quality" min="10" max="100" value="82" />
+            <span id="qualityVal">82%</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Output format</label>
+          <select id="outputFormat">
+            <option value="original">Original</option>
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/png">PNG</option>
+            <option value="image/webp" selected>WebP</option>
+          </select>
+        </div>
+      </div>
+      <div class="checkbox-group">
+        <input type="checkbox" id="stripMeta" checked />
+        <label for="stripMeta">Strip metadata (recommended for privacy)</label>
+      </div>
+    </div>
+
+    <div class="actions" id="actions">
+      <button class="btn btn-primary" id="optimizeAllBtn">&#x26A1; Optimize All</button>
+      <button class="btn btn-green" id="downloadAllBtn" disabled>&#x1F4E6; Download All as ZIP</button>
+      <button class="btn btn-danger" id="clearAllBtn">&#x1F5D1; Clear All</button>
+    </div>
+
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar-wrapper">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="progress-text">
+        <span id="progressLabel">Processing...</span>
+        <span id="progressCount">0 / 0</span>
+      </div>
+    </div>
+
+    <div class="summary" id="summary">
+      <div class="summary-number" id="summaryNumber">—</div>
+      <div class="summary-label" id="summaryLabel">total savings</div>
+    </div>
+
+    <div class="image-grid" id="imageGrid"></div>
+
+    <footer>
+      Built with PixelSqueeze &mdash; 100% client-side image optimization<br />
+      <a href="https://github.com/maxilylm/su-pixelsqueeze">Source on GitHub</a>
+    </footer>
+  </div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const images = []; // { file, originalUrl, optimizedBlob, optimizedUrl, card }
+
+    // Elements
+    const dropzone = $('#dropzone');
+    const fileInput = $('#fileInput');
+    const controls = $('#controls');
+    const actions = $('#actions');
+    const imageGrid = $('#imageGrid');
+    const progressContainer = $('#progressContainer');
+    const progressBar = $('#progressBar');
+    const progressLabel = $('#progressLabel');
+    const progressCount = $('#progressCount');
+    const summary = $('#summary');
+    const summaryNumber = $('#summaryNumber');
+    const summaryLabel = $('#summaryLabel');
+    const qualitySlider = $('#quality');
+    const qualityVal = $('#qualityVal');
+    const maxDimSelect = $('#maxDim');
+    const customDimInput = $('#customDim');
+    const outputFormat = $('#outputFormat');
+    const stripMeta = $('#stripMeta');
+    const optimizeAllBtn = $('#optimizeAllBtn');
+    const downloadAllBtn = $('#downloadAllBtn');
+    const clearAllBtn = $('#clearAllBtn');
+
+    // Quality slider
+    qualitySlider.addEventListener('input', () => {
+      qualityVal.textContent = qualitySlider.value + '%';
+    });
+
+    // Custom dimension toggle
+    maxDimSelect.addEventListener('change', () => {
+      customDimInput.style.display = maxDimSelect.value === 'custom' ? 'block' : 'none';
+    });
+
+    // Drop zone
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+      handleFiles(fileInput.files);
+      fileInput.value = '';
+    });
+
+    function handleFiles(fileList) {
+      const newFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+      if (!newFiles.length) return;
+
+      newFiles.forEach(file => {
+        const url = URL.createObjectURL(file);
+        const entry = { file, originalUrl: url, optimizedBlob: null, optimizedUrl: null, card: null };
+        images.push(entry);
+        entry.card = createCard(entry);
+        imageGrid.appendChild(entry.card);
+      });
+
+      controls.classList.add('visible');
+      actions.classList.add('visible');
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function getExtForMime(mime) {
+      if (mime === 'image/jpeg') return '.jpg';
+      if (mime === 'image/png') return '.png';
+      if (mime === 'image/webp') return '.webp';
+      if (mime === 'image/gif') return '.gif';
+      return '.img';
+    }
+
+    function createCard(entry) {
+      const card = document.createElement('div');
+      card.className = 'image-card';
+      card.innerHTML = `
+        <div class="image-preview" title="Click to toggle before/after">
+          <span class="toggle-label">original</span>
+          <img src="${entry.originalUrl}" alt="${entry.file.name}" />
+        </div>
+        <div class="image-info">
+          <div class="image-name">${entry.file.name}</div>
+          <div class="size-row">
+            <span class="size-original">${formatSize(entry.file.size)}</span>
+            <span class="size-arrow">&rarr;</span>
+            <span class="size-optimized" data-optimized>—</span>
+          </div>
+          <div class="size-row">
+            <span class="savings-badge low" data-savings>Pending</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-secondary btn-download" disabled>Download</button>
+          </div>
+        </div>
+      `;
+
+      // Toggle preview
+      let showingOptimized = false;
+      const preview = card.querySelector('.image-preview');
+      const img = preview.querySelector('img');
+      const toggleLabel = preview.querySelector('.toggle-label');
+
+      preview.addEventListener('click', () => {
+        if (!entry.optimizedUrl) return;
+        showingOptimized = !showingOptimized;
+        img.src = showingOptimized ? entry.optimizedUrl : entry.originalUrl;
+        toggleLabel.textContent = showingOptimized ? 'optimized' : 'original';
+      });
+
+      // Download
+      card.querySelector('.btn-download').addEventListener('click', () => {
+        if (!entry.optimizedBlob) return;
+        downloadBlob(entry.optimizedBlob, getOptimizedName(entry));
+      });
+
+      return card;
+    }
+
+    function getOptimizedName(entry) {
+      const fmt = outputFormat.value;
+      const base = entry.file.name.replace(/\.[^.]+$/, '');
+      if (fmt === 'original') {
+        const ext = getExtForMime(entry.file.type);
+        return base + '_optimized' + ext;
+      }
+      return base + '_optimized' + getExtForMime(fmt);
+    }
+
+    function downloadBlob(blob, filename) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function getMaxDim() {
+      if (maxDimSelect.value === 'custom') {
+        return parseInt(customDimInput.value) || 0;
+      }
+      return parseInt(maxDimSelect.value) || 0;
+    }
+
+    function optimizeImage(entry) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          const maxDim = getMaxDim();
+
+          // Resize if needed
+          if (maxDim > 0 && (w > maxDim || h > maxDim)) {
+            if (w >= h) {
+              h = Math.round(h * (maxDim / w));
+              w = maxDim;
+            } else {
+              w = Math.round(w * (maxDim / h));
+              h = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const fmt = outputFormat.value === 'original' ? entry.file.type : outputFormat.value;
+          const qual = (fmt === 'image/png') ? undefined : qualitySlider.value / 100;
+
+          canvas.toBlob((blob) => {
+            // If "optimized" is bigger, use original
+            if (blob.size >= entry.file.size && outputFormat.value === 'original' && maxDim === 0) {
+              entry.optimizedBlob = entry.file;
+              entry.optimizedUrl = entry.originalUrl;
+            } else {
+              if (entry.optimizedUrl && entry.optimizedUrl !== entry.originalUrl) {
+                URL.revokeObjectURL(entry.optimizedUrl);
+              }
+              entry.optimizedBlob = blob;
+              entry.optimizedUrl = URL.createObjectURL(blob);
+            }
+            updateCard(entry);
+            resolve();
+          }, fmt, qual);
+        };
+        img.src = entry.originalUrl;
+      });
+    }
+
+    function updateCard(entry) {
+      const card = entry.card;
+      const optimizedSize = entry.optimizedBlob.size;
+      const originalSize = entry.file.size;
+      const saved = originalSize - optimizedSize;
+      const pct = originalSize > 0 ? Math.round((saved / originalSize) * 100) : 0;
+
+      card.querySelector('[data-optimized]').textContent = formatSize(optimizedSize);
+
+      const badge = card.querySelector('[data-savings]');
+      if (pct > 0) {
+        badge.textContent = `-${pct}%`;
+        badge.className = 'savings-badge ' + (pct >= 20 ? 'good' : 'low');
+      } else {
+        badge.textContent = 'No savings';
+        badge.className = 'savings-badge low';
+      }
+
+      card.querySelector('.btn-download').disabled = false;
+    }
+
+    // Optimize All
+    optimizeAllBtn.addEventListener('click', async () => {
+      if (!images.length) return;
+      optimizeAllBtn.disabled = true;
+      downloadAllBtn.disabled = true;
+      progressContainer.classList.add('visible');
+      summary.classList.remove('visible');
+
+      let done = 0;
+      const total = images.length;
+      progressBar.style.width = '0%';
+      progressCount.textContent = `0 / ${total}`;
+      progressLabel.textContent = 'Processing...';
+
+      for (const entry of images) {
+        await optimizeImage(entry);
+        done++;
+        const pctDone = Math.round((done / total) * 100);
+        progressBar.style.width = pctDone + '%';
+        progressCount.textContent = `${done} / ${total}`;
+      }
+
+      progressLabel.textContent = 'Done!';
+      optimizeAllBtn.disabled = false;
+      downloadAllBtn.disabled = false;
+      showSummary();
+    });
+
+    function showSummary() {
+      let totalOriginal = 0;
+      let totalOptimized = 0;
+      images.forEach(e => {
+        if (e.optimizedBlob) {
+          totalOriginal += e.file.size;
+          totalOptimized += e.optimizedBlob.size;
+        }
+      });
+      const saved = totalOriginal - totalOptimized;
+      const pct = totalOriginal > 0 ? Math.round((saved / totalOriginal) * 100) : 0;
+
+      if (saved > 0) {
+        summaryNumber.textContent = `Saved ${formatSize(saved)} (${pct}% reduction)`;
+      } else {
+        summaryNumber.textContent = 'No additional savings';
+      }
+      summaryLabel.textContent = `${images.length} images processed &middot; ${formatSize(totalOriginal)} → ${formatSize(totalOptimized)}`;
+      summary.classList.add('visible');
+    }
+
+    // Download All as ZIP
+    downloadAllBtn.addEventListener('click', async () => {
+      if (!images.some(e => e.optimizedBlob)) return;
+      downloadAllBtn.disabled = true;
+      downloadAllBtn.innerHTML = '<span class="spinner"></span> Zipping...';
+
+      const zip = new JSZip();
+      images.forEach(entry => {
+        if (entry.optimizedBlob) {
+          zip.file(getOptimizedName(entry), entry.optimizedBlob);
+        }
+      });
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(content, 'pixelsqueeze-optimized.zip');
+
+      downloadAllBtn.disabled = false;
+      downloadAllBtn.innerHTML = '&#x1F4E6; Download All as ZIP';
+    });
+
+    // Clear All
+    clearAllBtn.addEventListener('click', () => {
+      images.forEach(entry => {
+        if (entry.originalUrl) URL.revokeObjectURL(entry.originalUrl);
+        if (entry.optimizedUrl && entry.optimizedUrl !== entry.originalUrl) URL.revokeObjectURL(entry.optimizedUrl);
+      });
+      images.length = 0;
+      imageGrid.innerHTML = '';
+      controls.classList.remove('visible');
+      actions.classList.remove('visible');
+      progressContainer.classList.remove('visible');
+      summary.classList.remove('visible');
+      downloadAllBtn.disabled = true;
+    });
+  </script>
+</body>
+</html>
